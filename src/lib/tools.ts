@@ -5,6 +5,7 @@
 
 import type { ToolDefinition } from './api';
 import * as vfs from './vfs';
+import { extractText, canExtractText, isImageFile, imageToBase64 } from './documents';
 
 export const fileTools: ToolDefinition[] = [
   {
@@ -19,11 +20,22 @@ export const fileTools: ToolDefinition[] = [
   },
   {
     name: 'read_file',
-    description: '파일의 텍스트 내용을 읽습니다. 텍스트 파일만 지원합니다.',
+    description: '파일의 내용을 읽습니다. 텍스트, PDF, DOCX 파일에서 텍스트를 추출할 수 있습니다. 이미지 파일은 read_image를 사용하세요.',
     input_schema: {
       type: 'object',
       properties: {
         path: { type: 'string', description: '읽을 파일의 경로' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'read_image',
+    description: '이미지 파일을 읽어 내용을 분석합니다. JPG, PNG, GIF, WebP를 지원합니다.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: '이미지 파일 경로' },
       },
       required: ['path'],
     },
@@ -88,10 +100,20 @@ export const fileTools: ToolDefinition[] = [
   },
 ];
 
+/** read_image 결과 - 특별 처리용 */
+export interface ImageToolResult {
+  type: 'image';
+  mediaType: string;
+  base64Data: string;
+  fileName: string;
+}
+
+export type ToolResult = string | ImageToolResult;
+
 export async function executeTool(
   name: string,
   input: Record<string, unknown>
-): Promise<string> {
+): Promise<ToolResult> {
   try {
     switch (name) {
       case 'list_directory': {
@@ -102,17 +124,58 @@ export async function executeTool(
           .map((e) => {
             if (e.type === 'directory') return `📁 ${e.name}/`;
             const size = e.size < 1024 ? `${e.size}B` : e.size < 1024 * 1024 ? `${(e.size / 1024).toFixed(1)}KB` : `${(e.size / (1024 * 1024)).toFixed(1)}MB`;
-            return `📄 ${e.name} (${size})`;
+            const ext = e.name.split('.').pop()?.toLowerCase() || '';
+            const tag = canExtractText(e.name) ? ' [텍스트추출가능]' : isImageFile(e.name) ? ' [이미지]' : '';
+            return `📄 ${e.name} (${size}, .${ext})${tag}`;
           })
           .join('\n');
       }
 
       case 'read_file': {
-        const content = await vfs.readFile(input.path as string);
-        if (content.text !== undefined) {
-          return content.text;
+        const filePath = input.path as string;
+        const content = await vfs.readFile(filePath);
+        const fileName = filePath.split('/').pop() || '';
+
+        if (canExtractText(fileName)) {
+          if (content.text !== undefined) {
+            return content.text;
+          }
+          if (content.arrayBuffer) {
+            return await extractText(fileName, content.arrayBuffer);
+          }
         }
-        return `[바이너리 파일: ${content.metadata.mimeType}, ${content.metadata.size}바이트]`;
+
+        if (isImageFile(fileName)) {
+          return `[이미지 파일입니다. read_image 도구를 사용해주세요: ${filePath}]`;
+        }
+
+        return `[바이너리 파일: ${content.metadata.mimeType}, ${content.metadata.size}바이트 - 텍스트 추출 불가]`;
+      }
+
+      case 'read_image': {
+        const filePath = input.path as string;
+        const content = await vfs.readFile(filePath);
+        const fileName = filePath.split('/').pop() || '';
+
+        if (!isImageFile(fileName)) {
+          return `이미지 파일이 아닙니다: ${fileName}`;
+        }
+
+        if (!content.arrayBuffer) {
+          return `파일을 읽을 수 없습니다: ${filePath}`;
+        }
+
+        const mimeType = content.metadata.mimeType || 'image/png';
+        const base64 = imageToBase64(content.arrayBuffer, mimeType);
+        // Strip data URL prefix for API format
+        const base64Data = base64.split(',')[1];
+
+        return {
+          type: 'image',
+          mediaType: mimeType,
+          base64Data,
+          fileName,
+        };
       }
 
       case 'write_file': {

@@ -36,6 +36,16 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'pdf': ['pdfjs-dist'],
+          'docx': ['mammoth'],
+        },
+      },
+    },
+  },
   server: {
     host: true, // Expose to LAN for iPad/mobile testing
     proxy: {

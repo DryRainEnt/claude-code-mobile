@@ -10,6 +10,7 @@
 import { callClaude } from './api';
 import type { ApiMessage, ContentBlock } from './api';
 import { fileTools, executeTool } from './tools';
+import type { ImageToolResult } from './tools';
 
 export interface AgentEvent {
   type: 'text' | 'tool_call' | 'tool_result' | 'error' | 'done';
@@ -31,11 +32,17 @@ const SYSTEM_PROMPT = `당신은 iPad에서 동작하는 파일 관리 AI 어시
 가상 파일 시스템 정보:
 - 루트 경로는 / 입니다
 - 경로는 항상 /로 시작합니다 (예: /강의자료/1단원/교안.md)
-- 텍스트 파일만 읽기/쓰기 가능합니다 (바이너리 파일은 메타데이터만 확인 가능)`;
+- 텍스트, PDF, DOCX 파일에서 텍스트를 추출할 수 있습니다
+- 이미지 파일(JPG, PNG 등)은 read_image 도구로 분석할 수 있습니다
+- 파일 목록에서 [텍스트추출가능], [이미지] 태그로 처리 가능한 파일을 확인할 수 있습니다`;
 
 const MAX_TOOL_ROUNDS = 15;
 
 export type AgentCallback = (event: AgentEvent) => void;
+
+function isImageResult(result: unknown): result is ImageToolResult {
+  return typeof result === 'object' && result !== null && (result as ImageToolResult).type === 'image';
+}
 
 export async function runAgent(
   userMessage: string,
@@ -80,7 +87,7 @@ export async function runAgent(
     }
 
     // Execute tool calls
-    const toolResults: ContentBlock[] = [];
+    const toolResultBlocks: ContentBlock[] = [];
 
     for (const block of assistantContent) {
       if (block.type === 'tool_use') {
@@ -93,22 +100,52 @@ export async function runAgent(
 
         const result = await executeTool(block.name, block.input);
 
-        onEvent({
-          type: 'tool_result',
-          content: result,
-          toolName: block.name,
-        });
+        if (isImageResult(result)) {
+          // Image result: send as multipart content with image block for Vision
+          onEvent({
+            type: 'tool_result',
+            content: `이미지 분석 중: ${result.fileName}`,
+            toolName: block.name,
+          });
 
-        toolResults.push({
-          type: 'tool_result',
-          tool_use_id: block.id,
-          content: result,
-        });
+          toolResultBlocks.push({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            // Send image as content array for Claude Vision
+            content: JSON.stringify([
+              {
+                type: 'image',
+                source: {
+                  type: 'base64',
+                  media_type: result.mediaType,
+                  data: result.base64Data,
+                },
+              },
+              {
+                type: 'text',
+                text: `이미지 파일: ${result.fileName}`,
+              },
+            ]),
+          } as ContentBlock);
+        } else {
+          const resultStr = result as string;
+          onEvent({
+            type: 'tool_result',
+            content: resultStr,
+            toolName: block.name,
+          });
+
+          toolResultBlocks.push({
+            type: 'tool_result',
+            tool_use_id: block.id,
+            content: resultStr,
+          });
+        }
       }
     }
 
     // Add tool results and continue the loop
-    messages.push({ role: 'user', content: toolResults });
+    messages.push({ role: 'user', content: toolResultBlocks });
   }
 
   onEvent({ type: 'done', content: '' });

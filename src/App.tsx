@@ -1,11 +1,17 @@
 import { useState } from 'react';
 import FileTree from './components/FileTree';
 import ChatPanel from './components/ChatPanel';
+import FilePreview from './components/FilePreview';
 import SettingsModal from './components/SettingsModal';
+import { useFileStore } from './stores/fileStore';
+
+type RightPanel = 'chat' | 'preview';
 
 export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [rightPanel, setRightPanel] = useState<RightPanel>('chat');
+  const selectedFile = useFileStore((s) => s.selectedFile);
 
   return (
     <div className="h-full flex flex-col bg-slate-900">
@@ -22,13 +28,38 @@ export default function App() {
             파일정리 AI
           </h1>
         </div>
-        <button
-          onClick={() => setShowSettings(true)}
-          className="p-1.5 rounded hover:bg-slate-700 text-slate-400"
-          title="설정"
-        >
-          ⚙️
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Panel toggle tabs */}
+          <div className="flex bg-slate-700/50 rounded-lg p-0.5">
+            <button
+              onClick={() => setRightPanel('chat')}
+              className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                rightPanel === 'chat'
+                  ? 'bg-slate-600 text-slate-200'
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              채팅
+            </button>
+            <button
+              onClick={() => setRightPanel('preview')}
+              className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                rightPanel === 'preview'
+                  ? 'bg-slate-600 text-slate-200'
+                  : 'text-slate-400 hover:text-slate-300'
+              }`}
+            >
+              미리보기
+            </button>
+          </div>
+          <button
+            onClick={() => setShowSettings(true)}
+            className="p-1.5 rounded hover:bg-slate-700 text-slate-400"
+            title="설정"
+          >
+            ⚙️
+          </button>
+        </div>
       </header>
 
       {/* Main content */}
@@ -42,9 +73,17 @@ export default function App() {
           <FileTree />
         </aside>
 
-        {/* Chat panel */}
+        {/* Right panel */}
         <main className="flex-1 min-w-0">
-          <ChatPanel />
+          {rightPanel === 'chat' ? (
+            <ChatPanel />
+          ) : selectedFile && selectedFile.type === 'file' ? (
+            <FilePreview />
+          ) : (
+            <div className="flex items-center justify-center h-full text-slate-500 text-sm">
+              왼쪽에서 파일을 선택하세요
+            </div>
+          )}
         </main>
       </div>
 
