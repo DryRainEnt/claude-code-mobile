@@ -36,4 +36,14 @@ export default defineConfig({
       },
     }),
   ],
+  server: {
+    host: true, // Expose to LAN for iPad/mobile testing
+    proxy: {
+      '/api': {
+        target: 'https://api.anthropic.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ''),
+      },
+    },
+  },
 })
