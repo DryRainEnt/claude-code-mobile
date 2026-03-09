@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import FileTree from './components/FileTree';
 import ChatPanel from './components/ChatPanel';
 import FilePreview from './components/FilePreview';
 import SettingsModal from './components/SettingsModal';
+import WelcomeSetup from './components/WelcomeSetup';
 import { useFileStore } from './stores/fileStore';
 
 type RightPanel = 'chat' | 'preview';
@@ -11,7 +12,23 @@ export default function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [rightPanel, setRightPanel] = useState<RightPanel>('chat');
+  const [setupDone, setSetupDone] = useState(false);
   const selectedFile = useFileStore((s) => s.selectedFile);
+
+  useEffect(() => {
+    const hasKey = !!localStorage.getItem('anthropic_api_key');
+    const skipped = !!localStorage.getItem('setup_completed');
+    setSetupDone(hasKey || skipped);
+  }, []);
+
+  const handleSetupComplete = () => {
+    localStorage.setItem('setup_completed', 'true');
+    setSetupDone(true);
+  };
+
+  if (!setupDone) {
+    return <WelcomeSetup onComplete={handleSetupComplete} />;
+  }
 
   return (
     <div className="h-full flex flex-col bg-slate-900">
